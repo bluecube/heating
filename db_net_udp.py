@@ -95,3 +95,25 @@ class DBNetUdpPacket:
 
     def _encrypt_packet(self, packet):
         return bytes((x ^ key for x, key in zip(packet, self._keystream())))
+
+    def bruteforce(self):
+        """
+        Try to find the password for a received packet by enumerating all possibilities.
+        Prints stuff, takes a whole day on my computer.
+        """
+
+        results = []
+
+        try:
+            for password_high in range(0, 2**32, 2**16):
+                print("{:.4%}".format(password_high / 2**32))
+                for password in range(password_high, password_high + 2**16):
+                    self.password = password
+                    if self._received_signature == self._signature():
+                        print("!!! Found: {} !!!".format(password))
+                        results.append(password)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print("results: " + ', '.join((str(p) for p in results)))
+
