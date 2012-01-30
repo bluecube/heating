@@ -35,7 +35,7 @@ class DBNetUdpPacket:
         self.station_key = None
         self.dbnet_packet = None
 
-        self._password = password
+        self.password = password
     
     def __bytes__(self):
         packet = bytes(self.dbnet_packet)
@@ -59,8 +59,6 @@ class DBNetUdpPacket:
         (self.id_trans, self.station_key, self._received_signature, length) = \
             self._packer.unpack(data[:15])
 
-        print(binascii.hexlify(bytes(itertools.islice(self._keystream(), 20))))
-
         encrypted_packet = data[15:]
 
         if len(encrypted_packet) != length + 6:
@@ -69,16 +67,15 @@ class DBNetUdpPacket:
         self.dbnet_packet = db_net.DBNetPacket.from_bytes(
             self._encrypt_packet(encrypted_packet))
         
-        if self._received_signature != self._signature():
-            raise DBNetUdpPacketException("Non matching signature")
+        if self.password is not None:
+            if self._received_signature != self._signature():
+                raise DBNetUdpPacketException("Non matching signature")
 
         return self
 
     def _signature(self):
-        if self._password is None:
-            raise DBNetUdpPacketException("Key is None")
         return _encrypt_block(
-            self._password,
+            self.password,
             self.id_trans + self.station_key + 256 +
             self.dbnet_packet._checksum())
 
