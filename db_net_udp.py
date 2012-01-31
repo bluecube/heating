@@ -27,25 +27,34 @@ def _encrypt_block(key, data):
     return (a + data + b) & UINT32_MAX
 
 class DBNetUdpPacket:
-    _packer = struct.Struct('<ixxiib')
-    _int_packer = struct.Struct('<i')
+    _packer = struct.Struct('<IHII')
+    _int_packer = struct.Struct('<I')
 
-    def __init__(self, password = None):
+    NORMAL_MODE = 0
+    INVALID_STATION_KEY = 0x1111
+
+    def __init__(self):
         self.id_trans = None
         self.station_key = None
         self.dbnet_packet = None
 
-        self.password = password
+        self.mode = self.NORMAL_MODE
     
     def __bytes__(self):
-        packet = bytes(self.dbnet_packet)
-
-        return _packer.pack(
+        header = _packer.pack(
             self.id_trans,
+            self.mode,
             self.station_key,
-            self._calc_signature(),
-            len(packet) - 6) + \
-            self._encrypt_packet(bytes(self.dbnet_packet))
+            self._calc_signature())
+
+        if self.mode == self.INVALID_STATION_KEY:
+            if self.dbnet_packet != None:
+                raise DBNetUdpPacketException("No payload is allowed if mode is INVALID_STATION_KEY.")
+
+            return header
+
+        packet = self._encrypt_packet(bytes(self.dbnet_packet))
+        return header + bytes(len(packet) - 6) + packet
 
     @classmethod
     def from_bytes(cls, data, password = None):
@@ -54,10 +63,17 @@ class DBNetUdpPacket:
         Throws exceptions in case of errors.
         """
 
-        self = cls(password)
+        self = cls()
 
-        (self.id_trans, self.station_key, self._received_signature, length) = \
-            self._packer.unpack(data[:15])
+        self.password = password
+
+        (self.id_trans, self.mode, self.station_key, self._received_signature) = \
+            self._packer.unpack(data[:14])
+
+        if len(data) <= 14:
+            return self
+        
+        length = data[14]
 
         encrypted_packet = data[15:]
 
