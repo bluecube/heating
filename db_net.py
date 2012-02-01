@@ -62,7 +62,7 @@ class DBNetPacket:
         out.append(self.sa)
         out.append(self.msg_id)
 
-        out.append(payload)
+        out.extend(payload)
 
         out.append(self._checksum())
 

@@ -17,5 +17,6 @@ for data in [
         print("{}: StationKey = {}".format(p.id_trans, p.station_key))
     else:
         print("{}: {} -> {} StationKey = {}".format(p.id_trans, p.dbnet_packet.sa, p.dbnet_packet.da, p.station_key))
+        print("  {}".format(p.dbnet_packet.msg_id))
 
 #conn = db_net_udp.DBNetUdpConnection(('10.0.0.202', 59), 4, 48414)

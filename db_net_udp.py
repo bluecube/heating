@@ -2,11 +2,20 @@ import struct
 import itertools
 import binascii
 
+import socket
+import select
+
 import db_net
 
 UINT32_MAX = 0xffffffff
 
-class DBNetUdpPacketException(Exception):
+class DBNetUdpException(Exception):
+    pass
+
+class DBNetUdpPacketException(DBNetUdpException):
+    pass
+
+class DBNetUdpTimeoutException(DBNetUdpException):
     pass
 
 def _encrypt_block(key, data):
@@ -37,15 +46,16 @@ class DBNetUdpPacket:
         self.id_trans = None
         self.station_key = None
         self.dbnet_packet = None
+        self.password = None
 
         self.mode = self.NORMAL_MODE
     
     def __bytes__(self):
-        header = _packer.pack(
+        header = self._packer.pack(
             self.id_trans,
             self.mode,
             self.station_key,
-            self._calc_signature())
+            self._signature())
 
         if self.mode == self.INVALID_STATION_KEY:
             if self.dbnet_packet != None:
@@ -54,7 +64,7 @@ class DBNetUdpPacket:
             return header
 
         packet = self._encrypt_packet(bytes(self.dbnet_packet))
-        return header + bytes(len(packet) - 6) + packet
+        return header + bytes([len(packet) - 6]) + packet
 
     @classmethod
     def from_bytes(cls, data, password = None):
@@ -132,4 +142,131 @@ class DBNetUdpPacket:
             pass
         finally:
             print("results: " + ', '.join((str(p) for p in results)))
+
+class _DBNetUdpConnection:
+    BUFFSIZE = 1024
+    TRY_COUNT = 3
+
+    def __init__(self, password, timeout = 3):
+        self._timeout = timeout
+        self._password = password
+
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def _receive(self):
+        (ready_rd, x, x) = select.select([self._socket], [], [], self._timeout)
+
+        if not ready_rd:
+            raise DBNetUdpTimeoutException("Receive timed out")
+
+        received, addr = self._socket.recvfrom(self.BUFFSIZE)
+
+        return DBNetUdpPacket.from_bytes(received), addr
+
+
+class DBNetUdpClient(_DBNetUdpConnection):
+    TRY_COUNT = 3
+
+    def __init__(self, addr, db_net_addr, password, timeout = 3, db_net_source_addr = 0x1f):
+        super().__init__(password, timeout)
+        self._addr = addr
+        self._sa = db_net_source_addr
+        self._da = db_net_addr
+
+        self._station_key = {}
+        self._id_trans = 1000 # from the linux code
+
+    def _send(self, msg_id, payload, addr):
+        self._id_trans += 1
+
+        packet = DBNetUdpPacket()
+        packet.id_trans = self._id_trans
+        packet.station_key = self._station_key.get(self._da, 0)
+        packet.password = self._password
+
+        packet.dbnet_packet = db_net.DBNetPacket()
+        packet.dbnet_packet.sa = self._sa
+        packet.dbnet_packet.da = self._da
+        packet.dbnet_packet.msg_id = msg_id
+        packet.dbnet_packet.payload = payload
+
+        self._socket.sendto(bytes(packet), addr)
+
+    def transfer(self, msg_id, payload = None):
+        """
+        Perform a single transfer in client mode.
+        Repeatedly sends a message and reads answers, until
+        one of them is valid or a number of tries fails.
+        Returns tuple with reply message id and payload.
+        """
+        i = 1
+        last_exc = []
+        while i < self.TRY_COUNT:
+            self._send(msg_id, payload, self._addr)
+
+            try:
+                packet, address = self._receive()
+            except DBNetUdpException as e:
+                i += 1
+                last_exc.append(str(e))
+                continue
+
+            if packet.id_trans != self._id_trans:
+                i += 1
+                last_exc.append("Non matching transaction identifier")
+                continue
+
+            self._station_key[self._da] = packet.station_key
+
+            if packet.mode == DBNetUdpPacket.INVALID_STATION_KEY:
+                continue
+            
+            return (packet.dbnet_packet.msg_id, packet.dbnet_packet.payload)
+
+        raise DBNetUdpException('Failed to receive valid reply packet (' +
+            ', '.join(last_exc) + ")")
+
+
+class DBNetUdpServer(_DBNetUdpConnection):
+    def __init__(self, addr, handler, password, timeout = 3):
+        super().__init__(password, timeout)
+        self._handler = handler
+
+        self._socket.bind(addr)
+
+    def run(self):
+        """
+        Run a server in the current thread.
+        We're ignoring crypto here as much as possible,
+        because it's pointless anyway. Only exception is the master password,
+        to keep the interface for client and server as consistent as possible.
+        """
+        while True:
+            try:
+                packet, address = self._receive()
+            except DBNetUdpTimeoutException:
+                continue
+
+            reply = self._handler(
+                packet.dbnet_packet.msg_id, packet.dbnet_packet.payload)
+
+            if reply is None:
+                reply_msg_id = 0
+                reply_payload = None
+            else:
+                reply_msg_id, reply_payload = reply
+            
+            reply = DBNetUdpPacket()
+            reply.id_trans = packet.id_trans
+            reply.station_key = 0xbadf00d # instead of making up random keys...
+            reply.password = self._password
+            reply.dbnet_packet = db_net.DBNetPacket()
+
+            reply.dbnet_packet.da = packet.dbnet_packet.sa
+            reply.dbnet_packet.sa = packet.dbnet_packet.da
+            reply.dbnet_packet.msg_id = reply_msg_id
+            reply.dbnet_packet.payload = reply_payload
+
+            self._socket.sendto(bytes(reply), address)
+
 
