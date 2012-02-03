@@ -1,6 +1,6 @@
 import itertools
 
-class Hexify:
+class Hexdump:
     def __init__(self, data, offset = 0):
         self._data = data
         self._offset = offset
@@ -72,5 +72,5 @@ class Hexify:
         print(str(self))
         
 
-def hexify(*args, **kwargs):
-    Hexify(*args, **kwargs).print()
+def hexdump_p(*args, **kwargs):
+    Hexdump(*args, **kwargs).print()
