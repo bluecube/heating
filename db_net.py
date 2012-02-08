@@ -6,7 +6,7 @@ UINT8_MAX = 0xff
 class DBNetPacketException(Exception):
     pass
 
-class DBNetPacket:
+class Packet:
     def __init__(self):
         self.sa = None
         self.da = None

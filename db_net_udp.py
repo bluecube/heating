@@ -35,7 +35,7 @@ def _encrypt_block(key, data):
 
     return (a + data + b) & UINT32_MAX
 
-class DBNetUdpPacket:
+class Packet:
     _packer = struct.Struct('<IHII')
     _int_packer = struct.Struct('<I')
 
@@ -90,7 +90,7 @@ class DBNetUdpPacket:
         if len(encrypted_packet) != length + 6:
             raise DBNetUdpPacketException("Non matching length")
 
-        self.dbnet_packet = db_net.DBNetPacket.from_bytes(
+        self.dbnet_packet = db_net.Packet.from_bytes(
             self._encrypt_packet(encrypted_packet))
         
         if self.password is not None:
@@ -143,7 +143,7 @@ class DBNetUdpPacket:
         finally:
             print("results: " + ', '.join((str(p) for p in results)))
 
-class _DBNetUdpConnection:
+class _Connection:
     BUFFSIZE = 1024
     TRY_COUNT = 3
 
@@ -164,7 +164,7 @@ class _DBNetUdpConnection:
         return DBNetUdpPacket.from_bytes(received), addr
 
 
-class DBNetUdpClient(_DBNetUdpConnection):
+class Client(_Connection):
     TRY_COUNT = 3
 
     def __init__(self, addr, db_net_addr, password, timeout = 3, db_net_source_addr = 0x1f):
@@ -174,7 +174,7 @@ class DBNetUdpClient(_DBNetUdpConnection):
         self._da = db_net_addr
 
         self._station_key = {}
-        self._id_trans = 1000 # from the linux code
+        self._id_trans = 0
 
     def _send(self, msg_id, payload, addr):
         self._id_trans += 1
@@ -227,7 +227,7 @@ class DBNetUdpClient(_DBNetUdpConnection):
             ', '.join(last_exc) + ")")
 
 
-class DBNetUdpServer(_DBNetUdpConnection):
+class Server(_Connection):
     def __init__(self, addr, handler, password, timeout = 3):
         super().__init__(password, timeout)
         self._handler = handler
