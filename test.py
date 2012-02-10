@@ -14,6 +14,8 @@ for data in open('packets.txt', 'r'):
         print("Correcting station key (0x{:x})".format(p.station_key))
         continue
     
+    print('{} -> {}'.format(p.dbnet_packet.sa, p.dbnet_packet.da))
+
     try:
         rq = db_net_registers.ReadRequest.from_bytes(p.dbnet_packet.payload)
     except:

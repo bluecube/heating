@@ -1,7 +1,8 @@
 import itertools
 
 class Hexdump:
-    def __init__(self, data, offset = 0):
+    def __init__(self, data, title = None, offset = 0):
+        self._title = title
         self._data = data
         self._offset = offset
 
@@ -69,6 +70,8 @@ class Hexdump:
         
 
     def print(self):
+        if self._title is not None:
+            print(self._title)
         print(str(self))
         
 

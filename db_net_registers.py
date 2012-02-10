@@ -2,8 +2,7 @@ import numpy
 import re
 import itertools
 import struct
-
-from pprint import pprint
+import db_net
 
 def group(lst, n):
     """group([0,3,4,10,2,3], 2) => iterator
@@ -59,7 +58,7 @@ class Type:
         if not matched:
             raise Exception("Invalid DBNet type string")
 
-        matrix, type_code, rows, columns = matched
+        matrix, type_code, rows, columns = matched.groups()
 
         if matrix == 'M':
             try:
@@ -129,22 +128,22 @@ class ReadResponse:
 
     @classmethod
     def from_bytes(cls, data, request):
+        if data is None:
+            raise Exception('Error processing the request.')
+
         if data[0] != 0x81:
             raise Exception('Read response has invalid start byte')
 
         self = cls()
         self.request = request
 
-        if len(data) != request.type.size + 1:
+        if len(data) != request.type.unpacker.size * request.rows * request.cols + 1:
             raise Exception('Invalid length of reply')
 
         flat_values = [request.type.unpacker.unpack(bytes(x))[0]
             for x in group(data[1:], request.type.unpacker.size)]
 
-        self.value = numpy.asmatrix(
-            list(group(flat_values, request.cols)),
-            request.type.dtype
-            )
+        self.value = list(group(flat_values, request.cols))
 
         return self
         
@@ -158,39 +157,54 @@ class Register:
         self._wid = wid
         self._type = Type.from_string(data_type)
         self._auto_update = auto_update
-    
+
+        if not self._type.matrix:
+            raise Exception('Only matrix registers are supported now.')
+
+        shorter_dim = min(*self._type.matrix)
+        longer_dim = max(*self._type.matrix)
+
+        # Maximal number of matrix items per transfer
+        max_items = (db_net.Packet.PAYLOAD_SIZE_LIMIT - 1) // self._type.unpacker.size
+        rows_per_batch = max_items // shorter_dim
+        
+        if rows_per_batch == 0:
+            raise Exception('The matrix is too big, sorry')
+
+        batches = ((x, min(rows_per_batch, longer_dim - x))
+            for x in range(0, longer_dim, rows_per_batch))
+
+        self._batches = []
+
+        if self._type.matrix[0] > self._type.matrix[1]:
+            for start, length in batches:
+                self._batches.append((start, 0, length, self._type.matrix[1]))
+        else:
+            for start, length in batches:
+                self._batches.append((0, start, self._type.matrix[0], length))
+
     def auto_update(self, val):
         self._auto_update = val
 
-    def _parse_matrix_response(self, data):
-        if len(reply[1]) != self._type.size + 1:
-            raise Exception('Invalid length of reply')
-
-        flat_values = (self._type.unpacker.unpack(x) for x in group(reply[1][1:], self._type.unpacker.size))
-
-        return numpy.matrix(
-            group(flat_values, self._type.matrix[1]),
-            self._type.dtype
-            )
-
-    def _update_matrix(self):
-        reply = self._transfer(0x4D, self.MATRIX_PACKER.pack(
-            1,
-            (self.wid >> 8) & 0xff,
-            self & 0xff,
-            0, 0,
-            self._type.matrix[0], self._type.matrix[1]))
-
-        self._value = self._parse_matrix_response()
-
-    def _update_scalar(self):
-        pass
-
     def update(self):
-        if self._type.matrix:
-            self._update_matrix()
-        else:
-            self._update_scalar()
+        self._value = numpy.empty(self._type.matrix)
+
+        for i0, j0, rows, cols in self._batches:
+            rq = ReadRequest()
+            rq.wid = self._wid
+            rq.type = self._type
+            rq.i0 = i0
+            rq.j0 = j0
+            rq.rows = rows
+            rq.cols = cols
+
+            resp_msg_id, resp_bytes = self._connection.transfer(rq.msg_id, bytes(rq))
+
+            resp = ReadResponse.from_bytes(resp_bytes, rq)
+
+            for i, row in zip(range(i0, i0 + rows), resp.value):
+                for j, x in zip(range(j0, j0 + rows), row):
+                    self._value[i, j] = x
     
     @property
     def value(self):

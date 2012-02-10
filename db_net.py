@@ -1,12 +1,16 @@
 import itertools
 import binascii
 
+#from hexdump import hexdump_p
+
 UINT8_MAX = 0xff
 
 class DBNetPacketException(Exception):
     pass
 
 class Packet:
+    PAYLOAD_SIZE_LIMIT = 240
+
     def __init__(self):
         self.sa = None
         self.da = None
@@ -15,6 +19,7 @@ class Packet:
 
     @classmethod
     def from_bytes(cls, data):
+        #hexdump_p(data, "dbnet_packet")
         self = cls()
 
         if data[0] == 0x10:

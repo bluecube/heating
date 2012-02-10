@@ -7,6 +7,8 @@ import select
 
 import db_net
 
+#from hexdump import hexdump_p
+
 UINT32_MAX = 0xffffffff
 
 class DBNetUdpException(Exception):
@@ -161,17 +163,17 @@ class _Connection:
 
         received, addr = self._socket.recvfrom(self.BUFFSIZE)
 
-        return DBNetUdpPacket.from_bytes(received), addr
+        return Packet.from_bytes(received), addr
 
 
 class Client(_Connection):
     TRY_COUNT = 3
 
-    def __init__(self, addr, db_net_addr, password, timeout = 3, db_net_source_addr = 0x1f):
+    def __init__(self, addr, dbnet_addr, password, timeout = 3, dbnet_source_addr = 0x1f):
         super().__init__(password, timeout)
         self._addr = addr
-        self._sa = db_net_source_addr
-        self._da = db_net_addr
+        self._sa = dbnet_source_addr
+        self._da = dbnet_addr
 
         self._station_key = {}
         self._id_trans = 0
@@ -179,16 +181,18 @@ class Client(_Connection):
     def _send(self, msg_id, payload, addr):
         self._id_trans += 1
 
-        packet = DBNetUdpPacket()
+        packet = Packet()
         packet.id_trans = self._id_trans
         packet.station_key = self._station_key.get(self._da, 0)
         packet.password = self._password
 
-        packet.dbnet_packet = db_net.DBNetPacket()
+        packet.dbnet_packet = db_net.Packet()
         packet.dbnet_packet.sa = self._sa
         packet.dbnet_packet.da = self._da
         packet.dbnet_packet.msg_id = msg_id
         packet.dbnet_packet.payload = payload
+
+        b = bytes(packet)
 
         self._socket.sendto(bytes(packet), addr)
 
@@ -204,6 +208,8 @@ class Client(_Connection):
         while i < self.TRY_COUNT:
             self._send(msg_id, payload, self._addr)
 
+            #hexdump_p(payload, "Sent:")
+
             try:
                 packet, address = self._receive()
             except DBNetUdpException as e:
@@ -218,9 +224,10 @@ class Client(_Connection):
 
             self._station_key[self._da] = packet.station_key
 
-            if packet.mode == DBNetUdpPacket.INVALID_STATION_KEY:
+            if packet.mode == Packet.INVALID_STATION_KEY:
                 continue
             
+            #hexdump_p(packet.dbnet_packet.payload, "Received:")
             return (packet.dbnet_packet.msg_id, packet.dbnet_packet.payload)
 
         raise DBNetUdpException('Failed to receive valid reply packet (' +
