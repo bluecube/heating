@@ -1,0 +1,9 @@
+This repository contains experiments with new heating controller system we have at home.
+
+The only thing that might be interesting for other people is a python library for reading
+registers from PLCs using db net protocol over UDP.
+Although db net over UDP is password protected this implementation doesn't need the password
+for reading at all and can bruteforce it from a single recorded message (slowly).
+
+No docs, sorry.
+
