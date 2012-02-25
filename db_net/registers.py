@@ -116,8 +116,8 @@ class ReadRequest:
             self.i0, self.j0, self.rows, self.cols)
      
     def details_to_string(self):
-        return 'WID = {}, {}x{} items from {}, {}'.format(
-            self.wid, self.rows, self.cols, self.i0, self.j0)
+        return 'WID = {} ({}), {}x{} items from {}, {}'.format(
+            self.wid, self.type, self.rows, self.cols, self.i0, self.j0)
 
     def __str__(self):
         return 'Read request: ' + self.details_to_string()
@@ -129,7 +129,7 @@ class ReadResponse:
     @classmethod
     def from_bytes(cls, data, request):
         if data is None:
-            raise Exception('Error processing the request.')
+            raise Exception('Error processing the request (data is None).')
 
         if data[0] != 0x81:
             raise Exception('Read response has invalid start byte')
@@ -199,6 +199,9 @@ class Register:
             rq.cols = cols
 
             resp_msg_id, resp_bytes = self._connection.transfer(rq.msg_id, bytes(rq))
+
+            if resp_bytes is None:
+                raise Exception("Reply: error!")
 
             resp = ReadResponse.from_bytes(resp_bytes, rq)
 
