@@ -102,17 +102,20 @@ class ReadRequest:
         self = cls()
         unused, code, wid_lo, wid_hi, self.i0, self.j0, self.rows, self.cols = \
             cls.PACKER.unpack(data)
+
         self.wid = wid_hi << 8 | wid_lo
         self.type = Type(code, (self.rows, self.cols))
 
         return self
 
     def __bytes__(self):
+        wid_lo = self.wid & 0xff
+        wid_hi = (self.wid >> 8) & 0xff
+
         return self.PACKER.pack(
             0x1,
             self.type.code,
-            (self.wid >> 8) & 0xff,
-            self.wid & 0xff,
+            wid_lo, wid_hi,
             self.i0, self.j0, self.rows, self.cols)
      
     def details_to_string(self):
@@ -187,7 +190,7 @@ class Register:
         self._auto_update = val
 
     def update(self):
-        self._value = numpy.empty(self._type.matrix)
+        self._value = numpy.empty(self._type.matrix, dtype = self._type.dtype)
 
         for i0, j0, rows, cols in self._batches:
             rq = ReadRequest()
@@ -206,7 +209,7 @@ class Register:
             resp = ReadResponse.from_bytes(resp_bytes, rq)
 
             for i, row in zip(range(i0, i0 + rows), resp.value):
-                for j, x in zip(range(j0, j0 + rows), row):
+                for j, x in zip(range(j0, j0 + cols), row):
                     self._value[i, j] = x
     
     @property
