@@ -69,10 +69,10 @@ class State:
         else:
             d_temp = self.d_temp
         for i, (t, h, dt) in enumerate(zip(self.room_temp, self.heating_on, d_temp)):
-            lines.append('{}: t = {:.2f}°C, heating = {}, dt/dtau = {}'.format(i, t, h, dt))
+            lines.append('{}: t = {:.2f}°C, heating = {}, dt/dtau = {}'.format(i, float(t), h, dt))
 
         lines.append('outside temp = {:.2f}°C, heating temp = {:.2f}°C -> {:.2f}°C'.format(
-            self.outside_temp, self.heating_temp, self.heating_return_temp))
+            float(self.outside_temp), float(self.heating_temp), float(self.heating_return_temp)))
 
         return '\n'.join(lines)
 
