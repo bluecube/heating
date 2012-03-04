@@ -18,12 +18,13 @@ average = []
 
 print('running')
 
-state = sf.get_state()
-print(state)
-time.sleep(INTERVAL)
-
 try:
     with gzip.open(sys.argv[1], 'ab') as f:
+
+        state = sf.get_state()
+        print(state)
+        time.sleep(INTERVAL)
+
         while True:
             state = sf.get_state()
             print(state)

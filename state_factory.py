@@ -45,7 +45,7 @@ class StateFactory:
         temps = self.temp_reg.value
         status = self.status_reg.value
 
-        room_temps = temps[:self.ROOM_COUNT,0]
+        room_temp = temps[:self.ROOM_COUNT,0]
         all_temps = temps[:,0]
 
         bits = status[0, 3] | (status[0, 4] << 8)
@@ -58,7 +58,8 @@ class StateFactory:
             i = i + 1
 
         state = heating.State(self.prevState,
-            room_temps, heating_on,
+            room_temp = room_temp,
+            heating_on = heating_on,
             heating_temp = all_temps[24],
             return_temp = all_temps[23],
             outside_temp = all_temps[19],

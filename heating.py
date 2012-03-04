@@ -3,24 +3,20 @@ import time
 import sys
 import itertools
 import copy
+import datetime
 
 class State:
     FILE_SEPARATOR = b'|'
+    SINGLE_ITEM = b'='
+    MULTIPLE_ITEMS = b'x'
 
-    def __init__(self, prev_state,
-        room_temp, heating_on,
-        heating_temp, return_temp,
-        outside_temp,
-        dhw_bottom_temp, buffer_temp,
-        timestamp = None):
+    def __init__(self, prev_state, timestamp = None, **kwargs):
 
-        self.room_temp = room_temp
-        self.heating_on = numpy.array(heating_on, dtype=numpy.float)
-        self.heating_temp = heating_temp
-        self.return_temp = return_temp
-        self.outside_temp = outside_temp
-        self.dhw_bottom_temp = dhw_bottom_temp
-        self.buffer_temp = buffer_temp
+        self.values = kwargs
+
+        self._check_all_values()
+
+        self.values['heating_on'] = numpy.array(self.values['heating_on'], dtype=numpy.float)
 
         if timestamp is None:
             self.timestamp = time.time()
@@ -31,45 +27,73 @@ class State:
             self.d_temp = None
             return
 
-        self.d_temp = (room_temp - prev_state.room_temp) / (self.timestamp - prev_state.timestamp)
+        self.values['d_temp'] = (self.values['room_temp'] - prev_state.values['room_temp']) / (self.timestamp - prev_state.timestamp)
 
-    def is_complete(self):
-        return self.d_temp is not None
+    def _check_all_values(self):
+        self._check_value('room_temp')
+        self._check_value('heating_on')
+        self._check_value('heating_temp')
+        self._check_value('return_temp')
+        self._check_value('outside_temp')
 
-    @classmethod
-    def _rd_line(cls, f, dtype):
-        line = f.readline()
+    def _check_value(self, name):
+        if name not in self.values:
+            raise Exception('missing required value ' + name)
 
-        if len(line) == 0:
-            raise StopIteration()
+    def _w_line(cls, f, value, name):
+        f.write(name.encode('ascii'))
+        f.write(cls.FILE_SEPARATOR)
 
-        return numpy.array(line.strip().split(cls.FILE_SEPARATOR), dtype=dtype)
+        try:
+            it = iter(value)
+        except TypeError:
+            f.write(cls.SINGLE_ITEM)
 
-    def _w_line(cls, f, line):
-        f.write(cls.FILE_SEPARATOR.join((str(x).encode('ascii') for x in line)))
+            f.write(cls.FILE_SEPARATOR)
+            f.write(str(value).encode('ascii'))
+        else:
+            f.write(cls.MULTIPLE_ITEMS)
+
+            for item in value:
+                f.write(cls.FILE_SEPARATOR)
+                f.write(str(item).encode('ascii'))
+
         f.write(b'\n')
 
     def save(self, f):
-        self._w_line(f, self.room_temp)
-        self._w_line(f, self.heating_on)
-        self._w_line(f, self.d_temp)
-        self._w_line(f, (self.heating_temp, self.return_temp,
-            self.outside_temp, self.dhw_bottom_temp, self.buffer_temp,
-            self.timestamp))
+        for name, value in self.values.items():
+            self._w_line(f, value, name)
+
+        self._w_line(f, self.timestamp, 'timestamp')
+
+        f.write(b'\n')
 
     @classmethod
     def load(cls, f):
-        self = cls(None, None, None, None, None, None, None, None)
+        values = {}
 
         try:
-            self.room_temp = cls._rd_line(f, numpy.float)
-            self.heating_on = cls._rd_line(f, numpy.float)
-            self.d_temp = cls._rd_line(f, numpy.float)
-            self.heating_temp, self.return_temp, \
-                self.outside_temp, self.timestamp, \
-                self.dhw_bottom_temp, self.buffer_temp = cls._rd_line(f, numpy.float)
+            for line in f:
+                items = line.strip().split(cls.FILE_SEPARATOR)
+                if len(items) == 1:
+                    break
+                
+                name = items[0].decode('ascii')
+                
+                if items[1] == cls.SINGLE_ITEM:
+                    values[name] = items[2]
+                else:
+                    values[name] = numpy.array(items[2:])
         except StopIteration:
             return None
+
+        if not len(values):
+            return None
+
+        timestamp = float(values['timestamp'])
+        del values['timestamp']
+
+        self = cls(None, timestamp, **values)
 
         return self
 
@@ -81,39 +105,20 @@ class State:
         count = 1
 
         for state in it:
-            self.room_temp += state.room_temp
-            self.heating_on += state.heating_on
-            self.heating_temp += state.heating_temp
-            self.return_temp += state.return_temp
-            self.outside_temp += state.outside_temp
-            self.dhw_bottom_temp += state.dhw_bottom_temp
-            self.buffer_temp += state.buffer_temp
+            for name in self.values:
+                self.values[name] += state.values[name]
             count += 1
             
-        self.room_temp /=count
-        self.heating_on /=count
-        self.heating_temp /=count
-        self.return_temp /=count
-        self.outside_temp /=count
-        self.dhw_bottom_temp /=count
-        self.buffer_temp /=count
+        for name in self.values:
+            self.values[name] /= count
 
         return self
 
     def __str__(self):
-        lines = []
-        if self.d_temp is None:
-            d_temp = itertools.repeat(None)
-        else:
-            d_temp = self.d_temp
-        for i, (t, h, dt) in enumerate(zip(self.room_temp, self.heating_on, d_temp)):
-            lines.append('{}: t = {:.2f}°C, heating = {}, dt/dtau = {}'.format(i, float(t), h, dt))
+        lines = ['*** {}'.format(datetime.datetime.fromtimestamp(self.timestamp).isoformat())]
 
-        lines.append('outside temp = {:.2f}°C, heating temp = {:.2f}°C -> {:.2f}°C'.format(
-            float(self.outside_temp), float(self.heating_temp), float(self.return_temp)))
-
-        lines.append('dhw temp = {:.2f}°C, buffer temp = {:.2f}°C'.format(
-            float(self.dhw_bottom_temp), float(self.buffer_temp)))
+        for name, value in self.values.items():
+            lines.append('{}: {}'.format(name, str(value)))
 
         return '\n'.join(lines)
 
